@@ -71,12 +71,21 @@ echo -e "${C}└─────────────────────�
 echo -e "  🔍 Đang kiểm tra pin..."
 BAT=$(ioreg -rc AppleSmartBattery 2>/dev/null)
 if [ -n "$BAT" ]; then
-  CYCLE=$(echo "$BAT" | grep '"CycleCount"' | awk -F'= ' '{print $2}')
-  MAX_CAP=$(echo "$BAT" | grep '"AppleRawMaxCapacity"' | awk -F'= ' '{print $2}')
-  DESIGN_CAP=$(echo "$BAT" | grep '"DesignCapacity"' | awk -F'= ' '{print $2}')
-  BAT_TEMP_RAW=$(echo "$BAT" | grep '"Temperature"' | awk -F'= ' '{print $2}')
-  IS_CHARGING=$(echo "$BAT" | grep '"IsCharging"' | awk -F'= ' '{print $2}')
+  # Only match top-level keys (indented with spaces at start of line)
+  bget() { echo "$BAT" | grep -E "^\s+\"$1\"" | head -1 | awk -F'= ' '{print $2}' | tr -d ' '; }
+  CYCLE=$(bget CycleCount)
+  MAX_CAP=$(bget AppleRawMaxCapacity)
+  DESIGN_CAP=$(bget DesignCapacity)
+  BAT_TEMP_RAW=$(bget Temperature)
+  IS_CHARGING=$(bget IsCharging)
   CONDITION=$(system_profiler SPPowerDataType 2>/dev/null | grep "Condition" | awk -F': ' '{print $2}')
+
+  # Sanitize: ensure numeric values
+  CYCLE=$(echo "$CYCLE" | grep -o '[0-9]*' | head -1)
+  MAX_CAP=$(echo "$MAX_CAP" | grep -o '[0-9]*' | head -1)
+  DESIGN_CAP=$(echo "$DESIGN_CAP" | grep -o '[0-9]*' | head -1)
+  BAT_TEMP_RAW=$(echo "$BAT_TEMP_RAW" | grep -o '[0-9]*' | head -1)
+  CYCLE=${CYCLE:-0}; MAX_CAP=${MAX_CAP:-0}; DESIGN_CAP=${DESIGN_CAP:-1}
 
   HEALTH_PCT=0
   [ "$DESIGN_CAP" -gt 0 ] 2>/dev/null && HEALTH_PCT=$((MAX_CAP * 100 / DESIGN_CAP))
