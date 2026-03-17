@@ -1,0 +1,396 @@
+#!/bin/bash
+# CheckMac — Kiểm tra chất lượng MacBook cũ
+# Chạy: curl -sL https://raw.githubusercontent.com/dmdfami/checkmac/main/checkmac | bash
+
+set -e
+
+# ═══════════════════════════════════════════════════════════
+# COLORS
+# ═══════════════════════════════════════════════════════════
+R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m' B='\033[0;34m'
+C='\033[0;36m' M='\033[0;35m' W='\033[0;37m' BOLD='\033[1m'
+DIM='\033[2m' NC='\033[0m'
+
+ok() { echo -e "    ${G}✅${NC} $1"; }
+warn() { echo -e "    ${Y}⚠️${NC}  $1"; }
+bad() { echo -e "    ${R}🔴${NC} $1"; }
+info() { echo -e "    $1"; }
+header() { echo -e "\n${2}${BOLD}$1${NC}  $3"; }
+line() { echo -e "${C}$(printf '─%.0s' {1..58})${NC}"; }
+
+bar() {
+  local pct=$1 w=20
+  local filled=$((pct * w / 100))
+  local empty=$((w - filled))
+  local color="${G}"
+  [ "$pct" -gt 70 ] && color="${Y}"
+  [ "$pct" -gt 90 ] && color="${R}"
+  printf "${color}%s${DIM}%s${NC} %d%%" "$(printf '█%.0s' $(seq 1 $filled 2>/dev/null) )" "$(printf '░%.0s' $(seq 1 $empty 2>/dev/null) )" "$pct"
+}
+
+# ═══════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════
+if [ "$(uname)" != "Darwin" ]; then
+  echo -e "${R}❌ Tool này chỉ chạy trên macOS!${NC}"
+  exit 1
+fi
+
+echo ""
+echo -e "${C}╔══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${C}║${NC}${BOLD}   🖥️  CHECKMAC — Kiểm tra chất lượng MacBook            ${NC}${C}║${NC}"
+echo -e "${C}║${NC}   by @dmdfami • v1.0.0                                   ${C}║${NC}"
+echo -e "${C}╚══════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+WARNINGS=()
+SCORE_TOTAL=0
+SCORE_WEIGHT=0
+
+# ─── HARDWARE ─────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra phần cứng..."
+HW=$(system_profiler SPHardwareDataType 2>/dev/null)
+SERIAL=$(echo "$HW" | grep -i "Serial Number" | head -1 | awk -F': ' '{print $2}')
+MODEL=$(echo "$HW" | grep "Model Name" | awk -F': ' '{print $2}')
+MODEL_ID=$(echo "$HW" | grep "Model Identifier" | awk -F': ' '{print $2}')
+CHIP=$(echo "$HW" | grep -E "Chip|Processor Name" | head -1 | awk -F': ' '{print $2}')
+CORES=$(echo "$HW" | grep "Total Number of Cores" | awk -F': ' '{print $2}')
+RAM=$(echo "$HW" | grep "Memory" | awk -F': ' '{print $2}')
+MACOS_VER=$(sw_vers -productVersion 2>/dev/null)
+MACOS_BUILD=$(sw_vers -buildVersion 2>/dev/null)
+
+echo -e "${C}┌──────────────────────────────────────────────────────────┐${NC}"
+echo -e "${C}│${NC} ${BOLD}Model:${NC}  $MODEL ($MODEL_ID)"
+echo -e "${C}│${NC} ${BOLD}Chip:${NC}   $CHIP — $CORES cores"
+echo -e "${C}│${NC} ${BOLD}RAM:${NC}    $RAM"
+echo -e "${C}│${NC} ${BOLD}Serial:${NC} $SERIAL"
+echo -e "${C}│${NC} ${BOLD}macOS:${NC}  $MACOS_VER ($MACOS_BUILD)"
+echo -e "${C}└──────────────────────────────────────────────────────────┘${NC}"
+
+# ─── BATTERY ──────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra pin..."
+BAT=$(ioreg -rc AppleSmartBattery 2>/dev/null)
+if [ -n "$BAT" ]; then
+  CYCLE=$(echo "$BAT" | grep '"CycleCount"' | awk -F'= ' '{print $2}')
+  MAX_CAP=$(echo "$BAT" | grep '"AppleRawMaxCapacity"' | awk -F'= ' '{print $2}')
+  DESIGN_CAP=$(echo "$BAT" | grep '"DesignCapacity"' | awk -F'= ' '{print $2}')
+  BAT_TEMP_RAW=$(echo "$BAT" | grep '"Temperature"' | awk -F'= ' '{print $2}')
+  IS_CHARGING=$(echo "$BAT" | grep '"IsCharging"' | awk -F'= ' '{print $2}')
+  CONDITION=$(system_profiler SPPowerDataType 2>/dev/null | grep "Condition" | awk -F': ' '{print $2}')
+
+  HEALTH_PCT=0
+  [ "$DESIGN_CAP" -gt 0 ] 2>/dev/null && HEALTH_PCT=$((MAX_CAP * 100 / DESIGN_CAP))
+  CYCLE_PCT=$((CYCLE * 100 / 1000))
+  BAT_TEMP=$(echo "scale=1; $BAT_TEMP_RAW / 100" | bc 2>/dev/null || echo "N/A")
+
+  BAT_STATUS="good"
+  BAT_SCORE=10
+  if [ "$HEALTH_PCT" -lt 80 ] || [ "$CYCLE" -gt 800 ]; then
+    BAT_STATUS="bad"; BAT_SCORE=4
+  elif [ "$HEALTH_PCT" -lt 90 ] || [ "$CYCLE" -gt 500 ]; then
+    BAT_STATUS="warn"; BAT_SCORE=7
+  fi
+
+  header "🔋 PIN" "" "$([ "$BAT_STATUS" = "good" ] && echo -e "${G}✅ TỐT${NC}" || ([ "$BAT_STATUS" = "warn" ] && echo -e "${Y}⚠️  CHÚ Ý${NC}" || echo -e "${R}🔴 NGUY HIỂM${NC}"))"
+  info "Chu kỳ sạc: ${BOLD}${CYCLE}${NC}/1000  (${CYCLE_PCT}% đã dùng)"
+  echo -ne "    Sức khỏe:   "; bar $HEALTH_PCT; echo -e "  (${MAX_CAP}/${DESIGN_CAP} mAh)"
+  info "Tình trạng: ${CONDITION}"
+  CHARGE_ICON="🔋 Dùng pin"
+  [ "$IS_CHARGING" = "Yes" ] && CHARGE_ICON="⚡ Đang sạc"
+  info "Nhiệt độ:   ${BAT_TEMP}°C   ${CHARGE_ICON}"
+
+  if [ "$HEALTH_PCT" -lt 80 ]; then
+    WARNINGS+=("${R}Pin dưới 80% — cần thay pin (~1.5-3 triệu)${NC}")
+  fi
+  SCORE_TOTAL=$((SCORE_TOTAL + BAT_SCORE * 30))
+  SCORE_WEIGHT=$((SCORE_WEIGHT + 30))
+fi
+
+# ─── STORAGE ──────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra ổ cứng..."
+DISK_INFO=$(diskutil info disk0 2>/dev/null)
+SMART=$(echo "$DISK_INFO" | grep "SMART Status" | awk -F': ' '{print $2}' | xargs)
+DISK_TYPE="SSD"
+echo "$DISK_INFO" | grep -q "Solid State.*No" && DISK_TYPE="HDD"
+MEDIA_NAME=$(echo "$DISK_INFO" | grep "Media Name" | awk -F': ' '{print $2}' | xargs)
+
+DF_LINE=$(df -h / 2>/dev/null | tail -1)
+TOTAL=$(echo "$DF_LINE" | awk '{print $2}')
+USED=$(echo "$DF_LINE" | awk '{print $3}')
+AVAIL=$(echo "$DF_LINE" | awk '{print $4}')
+USED_PCT=$(echo "$DF_LINE" | awk '{print $5}' | tr -d '%')
+
+# Speed test
+WRITE_RAW=$(dd if=/dev/zero of=/tmp/.checkmac_disktest bs=1m count=100 2>&1 || true)
+WRITE_BPS=$(echo "$WRITE_RAW" | grep -o '[0-9]* bytes/sec' | awk '{print $1}')
+WRITE_SPEED="N/A"
+[ -n "$WRITE_BPS" ] && WRITE_SPEED="$(echo "scale=1; $WRITE_BPS / 1073741824" | bc) GB/s"
+
+READ_RAW=$(dd if=/tmp/.checkmac_disktest of=/dev/null bs=1m 2>&1 || true)
+READ_BPS=$(echo "$READ_RAW" | grep -o '[0-9]* bytes/sec' | awk '{print $1}')
+READ_SPEED="N/A"
+[ -n "$READ_BPS" ] && READ_SPEED="$(echo "scale=1; $READ_BPS / 1073741824" | bc) GB/s"
+rm -f /tmp/.checkmac_disktest
+
+SMART_OK="good"
+SMART_SCORE=10
+[ "$SMART" != "Verified" ] && SMART_OK="bad" && SMART_SCORE=0 && WARNINGS+=("${R}Ổ cứng SMART lỗi — KHÔNG NÊN MUA!${NC}")
+
+header "💾 Ổ CỨNG" "" "$([ "$SMART_OK" = "good" ] && echo -e "${G}✅ TỐT${NC}" || echo -e "${R}🔴 LỖI${NC}")"
+[ "$SMART" = "Verified" ] && info "SMART:     ${G}✅ Verified${NC}" || info "SMART:     ${R}❌ ${SMART}${NC}"
+info "Loại:      ${DISK_TYPE} — ${MEDIA_NAME}"
+info "Dung lượng: ${USED} / ${TOTAL}  (còn trống ${AVAIL})"
+echo -ne "    Đã dùng:   "; bar ${USED_PCT:-0}; echo ""
+info "Tốc độ:    Ghi ${BOLD}${WRITE_SPEED}${NC} | Đọc ${BOLD}${READ_SPEED}${NC}"
+
+SCORE_TOTAL=$((SCORE_TOTAL + SMART_SCORE * 20))
+SCORE_WEIGHT=$((SCORE_WEIGHT + 20))
+
+# ─── SECURITY ─────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra bảo mật..."
+SEC_SCORE=10
+
+# MDM
+MDM_RAW=$(profiles status -type enrollment 2>&1 || true)
+HAS_MDM=false
+echo "$MDM_RAW" | grep -qi "MDM enrollment.*Yes" && HAS_MDM=true
+PROFILES_RAW=$(profiles list 2>&1 || true)
+HAS_PROFILES=false
+echo "$PROFILES_RAW" | grep -qi "attribute" && HAS_PROFILES=true
+[ -f "/var/db/ConfigurationProfiles/Settings/.profilesAreInstalled" ] && HAS_PROFILES=true
+
+# Find My Mac
+FINDMY=false
+nvram -x -p 2>/dev/null | grep -q "fmm-mobileme-token" && FINDMY=true
+
+# FileVault
+FDE=$(fdesetup status 2>/dev/null || true)
+FILEVAULT=false
+echo "$FDE" | grep -q "On" && FILEVAULT=true
+
+# SIP
+SIP_RAW=$(csrutil status 2>/dev/null || true)
+SIP_ON=false
+echo "$SIP_RAW" | grep -q "enabled" && SIP_ON=true
+
+# Firewall
+FW_RAW=$(defaults read /Library/Preferences/com.apple.alf globalstate 2>/dev/null || echo "0")
+FW_ON=false
+[ "$FW_RAW" = "1" ] || [ "$FW_RAW" = "2" ] && FW_ON=true
+
+# Screen Sharing
+SS_ON=false
+launchctl list 2>/dev/null | grep -qi screensharing && SS_ON=true
+
+SEC_STATUS="good"
+$HAS_MDM && SEC_SCORE=$((SEC_SCORE - 5))
+$FINDMY && SEC_SCORE=$((SEC_SCORE - 4))
+$SIP_ON || SEC_SCORE=$((SEC_SCORE - 1))
+[ $SEC_SCORE -lt 5 ] && SEC_STATUS="bad"
+[ $SEC_SCORE -lt 8 ] && [ $SEC_SCORE -ge 5 ] && SEC_STATUS="warn"
+
+header "🔒 BẢO MẬT" "" "$([ "$SEC_STATUS" = "good" ] && echo -e "${G}✅ TỐT${NC}" || ([ "$SEC_STATUS" = "warn" ] && echo -e "${Y}⚠️  CHÚ Ý${NC}" || echo -e "${R}🔴 NGUY HIỂM${NC}"))"
+$HAS_MDM && bad "CÓ MDM — Có thể bị khóa từ xa!" || ok "Không có MDM"
+$FINDMY && bad "Find My Mac đang ${R}BẬT ← YÊU CẦU TẮT!${NC}" || ok "Find My Mac: Tắt"
+$FILEVAULT && info "FileVault:  ${Y}🔐 Bật${NC}" || info "FileVault:  ${DIM}Tắt${NC}"
+$SIP_ON && ok "SIP: Enabled" || warn "SIP: ${R}Disabled${NC} — hệ thống có thể đã bị can thiệp"
+$FW_ON && ok "Firewall: Bật" || warn "Firewall: Tắt"
+$SS_ON && warn "Screen Sharing: Bật — kiểm tra remote access" || ok "Screen Sharing: Tắt"
+$HAS_PROFILES && warn "Phát hiện Configuration Profiles — kiểm tra kỹ!"
+
+$HAS_MDM && WARNINGS+=("${R}MÁY CÓ MDM — Có thể bị khóa từ xa bởi doanh nghiệp!${NC}")
+$FINDMY && WARNINGS+=("${R}Find My Mac đang BẬT — Yêu cầu người bán TẮT trước khi nhận!${NC}")
+$SIP_ON || WARNINGS+=("${Y}SIP bị tắt — hệ thống có thể đã bị can thiệp${NC}")
+$SS_ON && WARNINGS+=("${Y}Screen Sharing đang bật${NC}")
+
+SCORE_TOTAL=$((SCORE_TOTAL + SEC_SCORE * 20))
+SCORE_WEIGHT=$((SCORE_WEIGHT + 20))
+
+# ─── NETWORK ──────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra kết nối..."
+NET_PORTS=$(networksetup -listallhardwareports 2>/dev/null || true)
+HAS_WIFI=false
+echo "$NET_PORTS" | grep -q "Wi-Fi\|AirPort" && HAS_WIFI=true
+HAS_BT=false
+system_profiler SPBluetoothDataType 2>/dev/null | grep -q "Address" && HAS_BT=true
+
+WIFI_INFO=$(/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I 2>/dev/null || true)
+WIFI_SSID=$(echo "$WIFI_INFO" | grep ' SSID:' | awk -F': ' '{print $2}')
+WIFI_RSSI=$(echo "$WIFI_INFO" | grep 'agrCtlRSSI' | awk -F': ' '{print $2}')
+
+NET_STATUS="good"
+($HAS_WIFI && $HAS_BT) || NET_STATUS="warn"
+
+header "📡 KẾT NỐI" "" "$([ "$NET_STATUS" = "good" ] && echo -e "${G}✅ TỐT${NC}" || echo -e "${Y}⚠️  CHÚ Ý${NC}")"
+$HAS_WIFI && ok "WiFi: Có${WIFI_SSID:+ — $WIFI_SSID ($WIFI_RSSI dBm)}" || bad "WiFi: Không phát hiện!"
+$HAS_BT && ok "Bluetooth: Có" || bad "Bluetooth: Không phát hiện!"
+
+# ─── PERIPHERALS ──────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra thiết bị..."
+SP_CAM=$(system_profiler SPCameraDataType 2>/dev/null || true)
+SP_AUDIO=$(system_profiler SPAudioDataType 2>/dev/null || true)
+SP_USB=$(system_profiler SPUSBDataType 2>/dev/null || true)
+SP_TB=$(system_profiler SPThunderboltDataType 2>/dev/null || true)
+IOREG_ALL=$(ioreg -l 2>/dev/null || true)
+
+HAS_CAM=false; echo "$SP_CAM" | grep -qi "FaceTime\|Camera\|iSight" && HAS_CAM=true
+HAS_SPK=false; echo "$SP_AUDIO" | grep -qi "Speaker\|Output" && HAS_SPK=true
+HAS_MIC=false; echo "$SP_AUDIO" | grep -qi "Microphone\|Input" && HAS_MIC=true
+HAS_KB=false; echo "$IOREG_ALL" | grep -qi "Keyboard" && HAS_KB=true
+HAS_TP=false; echo "$IOREG_ALL" | grep -qi "Trackpad" && HAS_TP=true
+HAS_TOUCHID=false; system_profiler SPiBridgeDataType 2>/dev/null | grep -qi "Touch ID" && HAS_TOUCHID=true
+TB_PORTS=$(echo "$SP_TB" | grep -c "Port" 2>/dev/null || echo "0")
+
+PERI_COUNT=0
+$HAS_CAM && PERI_COUNT=$((PERI_COUNT + 1))
+$HAS_SPK && PERI_COUNT=$((PERI_COUNT + 1))
+$HAS_MIC && PERI_COUNT=$((PERI_COUNT + 1))
+$HAS_KB && PERI_COUNT=$((PERI_COUNT + 1))
+$HAS_TP && PERI_COUNT=$((PERI_COUNT + 1))
+PERI_SCORE=$((PERI_COUNT * 10 / 5))
+
+PERI_STATUS="good"
+[ $PERI_COUNT -lt 3 ] && PERI_STATUS="bad"
+[ $PERI_COUNT -lt 5 ] && [ $PERI_COUNT -ge 3 ] && PERI_STATUS="warn"
+
+header "🎛️  THIẾT BỊ" "" "$([ "$PERI_STATUS" = "good" ] && echo -e "${G}✅ TỐT${NC}" || ([ "$PERI_STATUS" = "warn" ] && echo -e "${Y}⚠️  CHÚ Ý${NC}" || echo -e "${R}🔴 LỖI${NC}"))"
+$HAS_CAM && ok "Camera" || bad "Camera: Không phát hiện"
+$HAS_SPK && ok "Loa" || bad "Loa: Không phát hiện"
+$HAS_MIC && ok "Micro" || bad "Micro: Không phát hiện"
+$HAS_KB && ok "Bàn phím" || bad "Bàn phím: Không phát hiện"
+$HAS_TP && ok "Trackpad" || bad "Trackpad: Không phát hiện"
+$HAS_TOUCHID && info "Touch ID:  ✅ Có" || info "Touch ID:  ${DIM}Không${NC}"
+info "Thunderbolt: ${TB_PORTS} ports"
+
+SCORE_TOTAL=$((SCORE_TOTAL + PERI_SCORE * 15))
+SCORE_WEIGHT=$((SCORE_WEIGHT + 15))
+
+# ─── DISPLAY ──────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra màn hình..."
+SP_DISP=$(system_profiler SPDisplaysDataType 2>/dev/null || true)
+RESOLUTION=$(echo "$SP_DISP" | grep "Resolution" | head -1 | awk -F': ' '{print $2}')
+IS_RETINA=false; echo "$SP_DISP" | grep -qi "Retina" && IS_RETINA=true
+PROMOTION=false; echo "$SP_DISP" | grep -qi "ProMotion\|120" && PROMOTION=true
+
+header "🖥️  MÀN HÌNH" "" "${DIM}ℹ️  INFO${NC}"
+info "Độ phân giải: ${BOLD}${RESOLUTION}${NC}$($IS_RETINA && echo ' Retina')"
+$PROMOTION && info "ProMotion:    ${G}✅ 120Hz${NC}" || info "ProMotion:    ${DIM}60Hz${NC}"
+
+# ─── PERFORMANCE ──────────────────────────────────────────
+echo -e "  🔍 Đang test hiệu năng CPU..."
+CPU_COUNT=$(sysctl -n hw.ncpu 2>/dev/null || echo "0")
+BAT_TEMP_BEFORE=$(ioreg -rc AppleSmartBattery 2>/dev/null | grep '"Temperature"' | awk -F'= ' '{print $2}')
+
+echo -e "    ${DIM}Stress test ${CPU_COUNT} nhân, 10 giây...${NC}"
+
+# Single-core benchmark (bash arithmetic is slow, but works)
+STRESS_START=$(date +%s)
+OPS=0
+while [ $(($(date +%s) - STRESS_START)) -lt 5 ]; do
+  # Bash math operations as CPU stress
+  for i in $(seq 1 500); do
+    : $((i * i * i))
+  done
+  OPS=$((OPS + 500))
+done
+STRESS_DURATION=$(($(date +%s) - STRESS_START))
+
+# Multi-core stress (background subshells)
+for i in $(seq 1 "$CPU_COUNT"); do
+  (
+    END=$(($(date +%s) + 5))
+    while [ "$(date +%s)" -lt "$END" ]; do
+      for j in $(seq 1 1000); do : $((j * j)); done
+    done
+  ) &
+done
+wait
+
+BAT_TEMP_AFTER=$(ioreg -rc AppleSmartBattery 2>/dev/null | grep '"Temperature"' | awk -F'= ' '{print $2}')
+TEMP_BEFORE="N/A"; TEMP_AFTER="N/A"; TEMP_DELTA="N/A"
+if [ -n "$BAT_TEMP_BEFORE" ] && [ -n "$BAT_TEMP_AFTER" ]; then
+  TEMP_BEFORE=$(echo "scale=1; $BAT_TEMP_BEFORE / 100" | bc 2>/dev/null)
+  TEMP_AFTER=$(echo "scale=1; $BAT_TEMP_AFTER / 100" | bc 2>/dev/null)
+  DELTA_RAW=$(echo "scale=1; ($BAT_TEMP_AFTER - $BAT_TEMP_BEFORE) / 100" | bc 2>/dev/null)
+  TEMP_DELTA="+${DELTA_RAW}"
+fi
+
+# Memory
+MEM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null || echo "0")
+MEM_TOTAL_GB=$(echo "scale=0; $MEM_TOTAL / 1073741824" | bc 2>/dev/null || echo "N/A")
+MEM_PRESSURE=$(memory_pressure 2>/dev/null | grep "free percentage" | awk '{print $NF}' || echo "N/A")
+
+header "⚡ HIỆU NĂNG" "" "${G}✅ TỐT${NC}"
+info "CPU:        ${CPU_COUNT} nhân — ${OPS} ops/${STRESS_DURATION}s (single-core bash)"
+info "Nhiệt độ:   ${TEMP_BEFORE}°C → ${TEMP_AFTER}°C  (${BOLD}${TEMP_DELTA}°C${NC})"
+info "RAM:        ${MEM_TOTAL_GB} GB    Mem pressure: ${MEM_PRESSURE}"
+
+# ─── SYSTEM ───────────────────────────────────────────────
+echo -e "  🔍 Đang kiểm tra hệ thống..."
+INSTALL_DATE="N/A"
+[ -f "/var/db/.AppleSetupDone" ] && INSTALL_DATE=$(stat -f "%SB" -t "%Y-%m-%d" /var/db/.AppleSetupDone 2>/dev/null || echo "N/A")
+UPTIME_STR=$(uptime 2>/dev/null | sed 's/.*up //' | sed 's/,.*//')
+
+CRASH_COUNT=0
+PANIC_COUNT=0
+for dir in /Library/Logs/DiagnosticReports "$HOME/Library/Logs/DiagnosticReports"; do
+  [ -d "$dir" ] || continue
+  CRASH_COUNT=$((CRASH_COUNT + $(find "$dir" -name "*.crash" -o -name "*.ips" -mtime -30 2>/dev/null | wc -l)))
+  PANIC_COUNT=$((PANIC_COUNT + $(find "$dir" -name "*kernel*" -o -name "*panic*" -mtime -30 2>/dev/null | wc -l)))
+done
+
+SYS_SCORE=10
+[ "$PANIC_COUNT" -gt 3 ] && SYS_SCORE=3
+[ "$PANIC_COUNT" -gt 0 ] && [ "$PANIC_COUNT" -le 3 ] && SYS_SCORE=$((SYS_SCORE - 2))
+[ "$CRASH_COUNT" -gt 20 ] && SYS_SCORE=$((SYS_SCORE - 2))
+
+SYS_STATUS="good"
+[ $SYS_SCORE -lt 7 ] && SYS_STATUS="bad"
+[ $SYS_SCORE -lt 9 ] && [ $SYS_SCORE -ge 7 ] && SYS_STATUS="warn"
+
+[ "$PANIC_COUNT" -gt 0 ] && WARNINGS+=("${Y}Phát hiện ${PANIC_COUNT} kernel panic — có thể lỗi phần cứng${NC}")
+
+header "📊 HỆ THỐNG" "" "$([ "$SYS_STATUS" = "good" ] && echo -e "${G}✅ TỐT${NC}" || echo -e "${Y}⚠️  CHÚ Ý${NC}")"
+info "macOS:        ${MACOS_VER} (${MACOS_BUILD})"
+info "Ngày cài đặt: ${INSTALL_DATE}"
+info "Uptime:       ${UPTIME_STR}"
+info "Crash (30d):  $([ "$CRASH_COUNT" -eq 0 ] && echo -e "${G}0${NC}" || echo -e "${Y}${CRASH_COUNT}${NC}")"
+info "Kernel panic: $([ "$PANIC_COUNT" -eq 0 ] && echo -e "${G}0${NC}" || echo -e "${R}${PANIC_COUNT}${NC}")"
+
+SCORE_TOTAL=$((SCORE_TOTAL + SYS_SCORE * 15))
+SCORE_WEIGHT=$((SCORE_WEIGHT + 15))
+
+# ═══════════════════════════════════════════════════════════
+# OVERALL SCORE
+# ═══════════════════════════════════════════════════════════
+OVERALL="0.0"
+[ $SCORE_WEIGHT -gt 0 ] && OVERALL=$(echo "scale=1; $SCORE_TOTAL / $SCORE_WEIGHT" | bc 2>/dev/null || echo "N/A")
+
+GRADE="D"; GRADE_LABEL="KÉM"
+[ "$(echo "$OVERALL >= 5" | bc 2>/dev/null)" = "1" ] && GRADE="C" && GRADE_LABEL="TRUNG BÌNH"
+[ "$(echo "$OVERALL >= 6" | bc 2>/dev/null)" = "1" ] && GRADE="B" && GRADE_LABEL="KHÁ"
+[ "$(echo "$OVERALL >= 7" | bc 2>/dev/null)" = "1" ] && GRADE="B+" && GRADE_LABEL="TỐT"
+[ "$(echo "$OVERALL >= 8" | bc 2>/dev/null)" = "1" ] && GRADE="A" && GRADE_LABEL="RẤT TỐT"
+[ "$(echo "$OVERALL >= 9" | bc 2>/dev/null)" = "1" ] && GRADE="A+" && GRADE_LABEL="XUẤT SẮC"
+
+SCORE_COLOR="${G}"
+[ "$(echo "$OVERALL < 8" | bc 2>/dev/null)" = "1" ] && SCORE_COLOR="${Y}"
+[ "$(echo "$OVERALL < 6" | bc 2>/dev/null)" = "1" ] && SCORE_COLOR="${R}"
+
+echo ""
+echo -e "${C}╔══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${C}║${NC} ${BOLD}📋  ĐÁNH GIÁ TỔNG: ${SCORE_COLOR}${OVERALL}/10${NC} — ${BOLD}${GRADE}${NC} ${GRADE_LABEL}           ${C}║${NC}"
+echo -e "${C}╠══════════════════════════════════════════════════════════╣${NC}"
+
+if [ ${#WARNINGS[@]} -gt 0 ]; then
+  for w in "${WARNINGS[@]}"; do
+    echo -e "${C}║${NC}  ${w}"
+  done
+else
+  echo -e "${C}║${NC}  ${G}✅ Không phát hiện vấn đề nghiêm trọng${NC}"
+fi
+
+echo -e "${C}║${NC}"
+echo -e "${C}║${NC}  ${DIM}Thời gian kiểm tra: $(date '+%H:%M:%S %d/%m/%Y')${NC}"
+echo -e "${C}╚══════════════════════════════════════════════════════════╝${NC}"
+echo ""
