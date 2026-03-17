@@ -1,0 +1,6 @@
+node_modules/
+mcp-logs.txt
+wa-logs.txt
+plans/
+.DS_Store
+/tmp/

@@ -1,0 +1,18 @@
+{
+  "name": "checkmac",
+  "version": "1.0.0",
+  "description": "Kiểm tra chất lượng MacBook cũ - Báo cáo đầy đủ tiếng Việt",
+  "bin": {
+    "checkmac": "./bin/checkmac.js"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
+  "keywords": ["macbook", "check", "quality", "hardware", "battery", "vietnam"],
+  "author": "dmdfami",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  }
+}
