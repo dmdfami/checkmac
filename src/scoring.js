@@ -42,15 +42,15 @@ function calculateScores(results) {
     label: 'Bảo mật',
   };
 
-  // Peripherals: 15%
+  // Peripherals: 10%
   const peri = results.peripherals;
   scores.peripherals = {
     score: Math.round((peri.detectedCount / peri.totalDevices) * 10),
-    weight: 15,
+    weight: 10,
     label: 'Thiết bị ngoại vi',
   };
 
-  // System stability: 15%
+  // System stability: 10%
   const sys = results.system;
   let sysScore = 10;
   if (sys.kernelPanics > 3) sysScore = 3;
@@ -59,8 +59,26 @@ function calculateScores(results) {
   else if (sys.crashCount > 10) sysScore -= 1;
   scores.system = {
     score: Math.max(0, sysScore),
-    weight: 15,
+    weight: 10,
     label: 'Ổn định hệ thống',
+  };
+
+  // Performance & Thermal: 10%
+  const perf = results.performance;
+  let perfScore = 10;
+  if (perf.singleCoreOps < 10000000) perfScore -= 2;
+  if (!perf.gpuOk) perfScore -= 2;
+  // Temp delta penalty: peak - baseline > 25°C
+  const tempDeltaNum = parseFloat((perf.tempDelta || '').replace(/[+°C]/g, ''));
+  if (tempDeltaNum > 25) perfScore -= 2;
+  else if (tempDeltaNum > 20) perfScore -= 1;
+  // Cooling rate penalty
+  if (perf.coolRating === 'poor') perfScore -= 3;
+  else if (perf.coolRating === 'normal') perfScore -= 0;
+  scores.performance = {
+    score: Math.max(0, perfScore),
+    weight: 10,
+    label: 'Hiệu năng & Tản nhiệt',
   };
 
   // Calculate weighted average

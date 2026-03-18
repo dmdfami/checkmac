@@ -46,7 +46,7 @@ async function runAllChecks() {
     spinner.start();
 
     try {
-      results[key] = fn();
+      results[key] = await fn();
     } catch (err) {
       results[key] = { error: err.message, status: 'bad' };
     }

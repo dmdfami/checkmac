@@ -91,9 +91,16 @@ function printReport(results, scoring) {
   // Performance
   console.log('');
   console.log(section('⚡', 'HIỆU NĂNG', perf.status));
-  console.log(`    CPU:        ${perf.cpuCount} nhân — ${(perf.stressOps / 1000000).toFixed(1)}M ops/s (single-core)`);
-  console.log(`    Multi-core: ${(perf.stressAllCores / 1000000).toFixed(1)}M ops tổng`);
-  console.log(`    Nhiệt độ:   ${perf.tempBefore} → ${perf.tempAfter}  (${bold(perf.tempDelta)})`);
+  console.log(`    CPU:        ${perf.cpuCount} nhân — ${(perf.singleCoreOps / 1000000).toFixed(1)}M ops/s (single-core)`);
+  console.log(`    Multi-core: ${(perf.multiCoreTotalOps / 1000000).toFixed(1)}M ops tổng (${perf.multiCoreDuration} — song song thật)`);
+  console.log(`    GPU:        ${perf.gpuOk ? green('✅ Metal OK') + ` — ${perf.gpuName} (${perf.gpuIterations} iterations)` : yellow('⚠️  ' + perf.gpuError)}`);
+  console.log(`    Nhiệt độ:   ${perf.tempBaseline} → ${perf.tempAfterCPU} (CPU) → ${bold(perf.tempPeak)} (peak)  ${bold(perf.tempDelta)}`);
+  if (perf.gpuTempBaseline !== 'N/A') {
+    console.log(`    GPU temp:   ${perf.gpuTempBaseline} → ${perf.gpuTempPeak}`);
+  }
+  const coolColor = perf.coolRating === 'excellent' ? green : perf.coolRating === 'normal' ? yellow : perf.coolRating === 'poor' ? red : dim;
+  const coolLabel = perf.coolRating === 'excellent' ? 'XUẤT SẮC' : perf.coolRating === 'normal' ? 'BÌNH THƯỜNG' : perf.coolRating === 'poor' ? 'KÉM (kiểm tra keo tản nhiệt!)' : 'N/A';
+  console.log(`    Hạ nhiệt:   ${perf.cpuCoolRate} CPU${perf.gpuCoolRate !== 'N/A' ? ` | ${perf.gpuCoolRate} GPU` : ''} — ${coolColor(coolLabel)}`);
   console.log(`    RAM:        ${perf.memTotal} — ${perf.memUsedPercent}% đang dùng  ${perf.memPressure}`);
   console.log(`    Disk I/O:   ${perf.ioLatency} (4KB x 1000 writes)`);
 
@@ -142,6 +149,10 @@ function getWarnings(r) {
     warnings.push(yellow('⚠️  SIP bị tắt — hệ thống có thể đã bị can thiệp'));
   if (r.security.screenSharing)
     warnings.push(yellow('⚠️  Screen Sharing đang bật — kiểm tra remote access'));
+  if (r.performance.coolRating === 'poor')
+    warnings.push(yellow('⚠️  Tốc độ hạ nhiệt kém — có thể keo tản nhiệt đã khô'));
+  if (!r.performance.gpuOk)
+    warnings.push(yellow('⚠️  GPU Metal test thất bại — kiểm tra GPU'));
   if (warnings.length === 0)
     warnings.push(green('✅ Không phát hiện vấn đề nghiêm trọng'));
   return warnings;
