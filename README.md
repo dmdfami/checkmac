@@ -5,12 +5,7 @@ Kiểm tra chất lượng MacBook cũ — báo cáo tiếng Việt.
 ## Chạy
 
 ```bash
-bash <(curl -sL tinyurl.com/24576k63)
-```
-
-Hoặc đầy đủ:
-```bash
-bash <(curl -sL https://raw.githubusercontent.com/dmdfami/checkmac/main/run.sh)
+curl -sL dmdfami.com/checkmac | bash
 ```
 
 ## Kiểm tra gì?
